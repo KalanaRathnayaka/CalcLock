@@ -7,12 +7,7 @@ function App() {
   const [result, setResult] = useState(null);
   const [unlockedResult, setUnlockedResult] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-
-  const [cardNumber, setCardNumber] = useState("");
-  const [expiry, setExpiry] = useState("");
-  const [cvv, setCvv] = useState("");
   const [history, setHistory] = useState([]);
 
   const buttons = [
@@ -35,10 +30,34 @@ function App() {
   };
 
   useEffect(() => {
-    axios
-      .get("http://localhost:8080/api/calculations/history")
-      .then((response) => setHistory(response.data))
-      .catch((error) => console.error(error));
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get("orderId");
+
+    const handleStripeSuccess = async () => {
+      if (window.location.pathname === "/success" && orderId) {
+        try {
+          await axios.post(
+            `http://localhost:8080/api/calculations/pay/${orderId}`
+          );
+
+          const response = await axios.get(
+            `http://localhost:8080/api/calculations/result/${orderId}`
+          );
+
+          setUnlockedResult(response.data);
+          setExpression(String(response.data.answer));
+          await loadHistory();
+
+          window.history.replaceState({}, "", "/");
+        } catch (error) {
+          alert("Payment completed, but answer unlock failed");
+        }
+      } else {
+        await loadHistory();
+      }
+    };
+
+    handleStripeSuccess();
   }, []);
 
   const handleButtonClick = (value) => {
@@ -46,7 +65,6 @@ function App() {
       setExpression("");
       setResult(null);
       setUnlockedResult(null);
-      setShowPaymentModal(false);
       return;
     }
 
@@ -88,35 +106,22 @@ function App() {
     }
   };
 
-  const openPaymentModal = () => {
-    setShowPaymentModal(true);
-  };
-
-  const handleDemoPayment = async () => {
-    if (!cardNumber || !expiry || !cvv) {
-      alert("Please fill all card details");
+  const handleStripePayment = async () => {
+    if (!result?.orderId) {
+      alert("Order ID not found");
       return;
     }
 
     try {
       setLoading(true);
 
-      await axios.post(
-        `http://localhost:8080/api/calculations/pay/${result.orderId}`
+      const response = await axios.post(
+        `http://localhost:8080/api/payment/checkout/${result.orderId}`
       );
 
-      const response = await axios.get(
-        `http://localhost:8080/api/calculations/result/${result.orderId}`
-      );
-
-      setUnlockedResult(response.data);
-      setShowPaymentModal(false);
-      setCardNumber("");
-      setExpiry("");
-      setCvv("");
-      await loadHistory();
+      window.location.href = response.data.url;
     } catch (error) {
-      alert(error.response?.data?.message || "Payment failed");
+      alert("Failed to start Stripe payment");
     } finally {
       setLoading(false);
     }
@@ -152,7 +157,9 @@ function App() {
 
         {!showHistory && (
           <>
-            <div className="display">{expression || "0"}</div>
+            <div className="display">
+              {unlockedResult ? unlockedResult.answer : expression || "0"}
+            </div>
 
             <div className="keypad">
               {buttons.map((btn) => (
@@ -169,27 +176,22 @@ function App() {
 
             {result && !unlockedResult && (
               <div className="result">
-                <p>
-                  <strong>Order ID:</strong>
-                </p>
-                <p className="order-id">{result.orderId}</p>
-                <p>{result.message}</p>
+                <div className="locked-answer">
+                  Answer: ******
+                </div>
 
-                <div className="locked-answer">Answer: ******</div>
-
-                <button className="pay-btn" onClick={openPaymentModal}>
-                  Pay To Unlock
+                <button
+                  className="pay-btn"
+                  onClick={handleStripePayment}
+                >
+                  Unlock Answer - Rs.200
                 </button>
               </div>
             )}
 
             {unlockedResult && (
-              <div className="result">
-                <p>
-                  <strong>Expression:</strong> {unlockedResult.expression}
-                </p>
-                <h2>Answer: {unlockedResult.answer}</h2>
-                <p>{unlockedResult.message}</p>
+              <div className="success-message">
+                ✓ Answer unlocked successfully
               </div>
             )}
           </>
@@ -218,7 +220,7 @@ function App() {
                   </div>
 
                   <span className={item.paid ? "paid" : "locked"}>
-                    {item.paid ? "Rs.50 Paid" : "Locked"}
+                    {item.paid ? "Rs.200 Paid" : "Locked"}
                   </span>
                 </div>
               ))
@@ -226,51 +228,6 @@ function App() {
           </div>
         )}
       </div>
-
-      {showPaymentModal && (
-        <div className="modal-overlay">
-          <div className="payment-modal">
-            <h2>Demo Card Payment</h2>
-            <p className="payment-note">
-              Use demo card details to unlock the answer.
-            </p>
-
-            <input
-              type="text"
-              placeholder="Card Number"
-              value={cardNumber}
-              onChange={(e) => setCardNumber(e.target.value)}
-            />
-
-            <div className="payment-row">
-              <input
-                type="text"
-                placeholder="MM/YY"
-                value={expiry}
-                onChange={(e) => setExpiry(e.target.value)}
-              />
-
-              <input
-                type="password"
-                placeholder="CVV"
-                value={cvv}
-                onChange={(e) => setCvv(e.target.value)}
-              />
-            </div>
-
-            <button className="pay-btn" onClick={handleDemoPayment}>
-              {loading ? "Processing..." : "Pay Rs. 50"}
-            </button>
-
-            <button
-              className="cancel-btn"
-              onClick={() => setShowPaymentModal(false)}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
