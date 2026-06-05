@@ -37,3 +37,4 @@ target/
 .env
 .env.local
 application-secret.properties
+.idea/
